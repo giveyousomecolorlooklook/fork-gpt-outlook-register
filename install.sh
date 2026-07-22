@@ -1,5 +1,5 @@
 cd /root
-git clone https://github.com/giveyousomecolorlooklook/fork-gpt-outlook-register
+git clone -b skip_sms2 --single-branch https://github.com/giveyousomecolorlooklook/fork-gpt-outlook-register
 cd fork-gpt-outlook-register
 uv venv
 uv pip install -r requirements.txt
