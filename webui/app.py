@@ -42,6 +42,7 @@ logging.basicConfig(
 logger = logging.getLogger("webui")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+BOOT_ID = str(int(time.time() * 1000))
 
 app = FastAPI(title="GPT Outlook Register WebUI", docs_url=None, redoc_url=None)
 
@@ -62,16 +63,6 @@ class RegisterReq(BaseModel):
     otp_timeout: int = 180
     allow_existing_login: bool = True
 
-class SkipSmsReq(BaseModel):
-    """跳过接码：用已有 access_token / session_token 换 refresh_token"""
-    access_token: str = Field("", description="ChatGPT session JWT (accessToken)")
-    session_token: str = Field("", description="可选的 __Secure-next-auth.session-token")
-    proxy: str = ""
-    want_access_token: bool = True
-    want_session_token: bool = True
-    want_refresh_token: bool = True
-
-
 
 # ──────────────────────── API ────────────────────────
 
@@ -88,8 +79,10 @@ def api_import(req: ImportReq):
 
 
 @app.get("/api/accounts")
-def api_accounts(status: str = "", limit: int = 500):
-    return {"ok": True, "items": db.list_accounts(status=status, limit=limit)}
+def api_accounts(status: str = "", limit: int = 50, offset: int = 0):
+    items = db.list_accounts(status=status, limit=limit, offset=offset)
+    total = db.count_accounts(status=status)
+    return {"ok": True, "items": items, "total": total}
 
 
 @app.delete("/api/accounts/{email}")
@@ -153,7 +146,7 @@ def api_release_stale(stale_seconds: int = 1800):
 
 @app.get("/api/stats")
 def api_stats():
-    return {"ok": True, "stats": db.stats()}
+    return {"ok": True, "stats": db.stats(), "boot_id": BOOT_ID}
 
 
 @app.post("/api/register")
@@ -191,37 +184,6 @@ def api_register(req: RegisterReq):
     run_id = registrar.start_registration(account, options)
     logger.info(f"[run] {run_id} -> {account['email']} (mail_source={mail_source})")
     return {"ok": True, "run_id": run_id, "email": account["email"]}
-
-@app.post("/api/skip_sms")
-def api_skip_sms(req: SkipSmsReq):
-    """跳过接码：用已有 access_token 直接换 refresh_token（Codex OAuth 直连）。"""
-    access_token = (req.access_token or "").strip()
-    session_token = (req.session_token or "").strip()
-    if not access_token and not session_token:
-        raise HTTPException(400, "需要 access_token 或 session_token")
-
-    options = {
-        "want_access_token": req.want_access_token,
-        "want_session_token": req.want_session_token,
-        "want_refresh_token": req.want_refresh_token,
-        "proxy": req.proxy,
-    }
-    email = "skip_sms_unknown"
-    if access_token and access_token.count(".") >= 2:
-        try:
-            import base64
-            payload_b64 = access_token.split(".")[1]
-            payload_b64 += "=" * (-len(payload_b64) % 4)
-            payload = json.loads(base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8"))
-            profile = payload.get("https://api.openai.com/profile", {})
-            email = (profile.get("email") or payload.get("email") or email)
-        except Exception:
-            pass
-
-    run_id = registrar.start_skip_sms_registration(access_token, session_token, options)
-    logger.info(f"[skip_sms] {run_id} -> {email}")
-    return {"ok": True, "run_id": run_id, "email": email}
-
 
 
 @app.get("/api/runs/{run_id}/stream")
@@ -286,6 +248,46 @@ def api_registered_one(email: str):
     if not row:
         raise HTTPException(404, "not found")
     return {"ok": True, "data": row}
+
+
+@app.get("/api/registered/{email}/auth_json")
+def api_registered_auth_json(email: str):
+    """导出 Codex CLI auth.json（需要 Agent Identity 凭证）。"""
+    row = db.get_registered(email)
+    if not row:
+        raise HTTPException(404, "not found")
+    extra = row.get("extra") or {}
+    agent_runtime_id = extra.get("agent_runtime_id", "")
+    agent_private_key = extra.get("agent_private_key", "")
+    if not agent_runtime_id or not agent_private_key:
+        raise HTTPException(400, "该账号没有 Agent Identity 凭证（无 agent_runtime_id）")
+    access_token = row.get("access_token", "")
+    account_id = ""
+    user_id = ""
+    plan_type = "free"
+    account_email = row.get("email", email)
+    if access_token:
+        try:
+            from codex_agent import extract_account_info
+            info = extract_account_info(access_token)
+            account_id = info.get("account_id", "")
+            user_id = info.get("user_id", "")
+            account_email = info.get("email", "") or account_email
+            plan_type = info.get("plan_type", "free")
+        except Exception:
+            pass
+    from codex_agent import build_auth_json
+    auth_json = build_auth_json(
+        agent_runtime_id=agent_runtime_id,
+        private_key_b64=agent_private_key,
+        account_id=account_id,
+        user_id=user_id,
+        email=account_email,
+        plan_type=plan_type,
+    )
+    return JSONResponse(content=auth_json, headers={
+        "Content-Disposition": f'attachment; filename="auth.json"',
+    })
 
 
 @app.delete("/api/registered/{email}")

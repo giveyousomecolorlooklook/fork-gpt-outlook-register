@@ -202,10 +202,12 @@ def _do_register(
             need_session = options.get("want_session_token", True)
             need_refresh = options.get("want_refresh_token", True)
             # 用户勾选的凭证全拿到 → 算正常完成（不视为 partial）
+            # agent_runtime_id 可替代 refresh_token（Agent Identity 模式）
+            has_rt_or_agent = bool(d.get("refresh_token") or d.get("agent_runtime_id"))
             wanted_ok = (
                 (not need_access or d.get("access_token"))
                 and (not need_session or d.get("session_token"))
-                and (not need_refresh or d.get("refresh_token"))
+                and (not need_refresh or has_rt_or_agent)
             )
             has_any = bool(
                 d.get("access_token") or d.get("refresh_token") or d.get("session_token")
@@ -236,6 +238,9 @@ def _do_register(
         if options.get("want_refresh_token", True):
             d["refresh_token"] = full.get("refresh_token", "")
             d["id_token"] = full.get("id_token", "")
+        if full.get("agent_runtime_id"):
+            d["agent_runtime_id"] = full["agent_runtime_id"]
+            d["agent_private_key"] = full.get("agent_private_key", "")
 
         # 落库
         db.save_registered(d)
@@ -421,164 +426,3 @@ def get_run_queue(run_id: str) -> Optional[queue.Queue]:
 def remove_run_queue(run_id: str) -> None:
     with _lock:
         _run_queues.pop(run_id, None)
-
-# ── 跳过接码：已有 access_token → refresh_token ──
-
-def _do_skip_sms_register(
-    run_id: str,
-    access_token: str,
-    session_token: str,
-    options: dict,
-    log_file: Path,
-):
-    """跳过 SMS/OTP，用已有凭证换 refresh_token（Codex OAuth 直连）。"""
-    handler = QueueLogHandler(run_id, log_file)
-    handler.setLevel(logging.INFO)
-    root_logger = logging.getLogger()
-    root_logger.addHandler(handler)
-    if root_logger.level > logging.INFO or root_logger.level == 0:
-        root_logger.setLevel(logging.INFO)
-
-    saved_env = {}
-    try:
-        env_overrides = {
-            "OAUTH_CODEX_RT_EXCHANGE": "1",
-            "OAUTH_CODEX_RT_ALLOW_RETRY": "1",
-            "OAUTH_SECONDARY_AUTHORIZE_EXCHANGE": "1",
-            "SKIP_OAUTH_TOKEN_EXCHANGE": "1",
-            "OAUTH_TOKEN_EXCHANGE_FROM_CALLBACK": "0",
-            "OAUTH_EXCHANGE_BEFORE_CALLBACK": "0",
-            "WEBUI_ALLOW_LOGIN": "1",
-        }
-        for k, v in env_overrides.items():
-            saved_env[k] = os.environ.get(k)
-            os.environ[k] = v
-
-        cfg = Config()
-        cfg.proxy = (options.get("proxy") or "").strip() or None
-
-        email = "skip_sms_unknown"
-        flow = AuthFlow(cfg)
-        _emit_status(run_id, "phase", {"phase": "starting", "email": email})
-        logging.getLogger("registrar").info(f"[skip_sms] token_len={len(access_token or '')}")
-
-        flow.from_existing_credentials(
-            session_token=session_token,
-            access_token=access_token,
-            device_id=str(uuid.uuid4()),
-        )
-
-        email = flow.result.email or "unknown"
-        if not email and access_token and access_token.count(".") >= 2:
-            try:
-                import base64 as _b64
-                payload_b64 = access_token.split(".")[1]
-                payload_b64 += "=" * (-len(payload_b64) % 4)
-                payload = json.loads(
-                    _b64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
-                )
-                profile = payload.get("https://api.openai.com/profile", {})
-                email = (profile.get("email") or payload.get("email") or "skip_sms_unknown")
-                flow.result.email = email
-            except Exception:
-                pass
-
-        logging.getLogger("registrar").info(f"[skip_sms] {email}")
-
-        logging.getLogger("registrar").info("[skip_sms] Codex OAuth RT exchange ...")
-        ok = flow.oauth_codex_rt_exchange(mail_provider=None)
-        if not ok:
-            logging.getLogger("registrar").warning("[skip_sms] primary failed, fallback to secondary")
-            flow.oauth_secondary_authorize_exchange()
-
-        flow.get_auth_session()
-
-        d = flow.result.to_dict()
-        filtered = {
-            "email": d.get("email", email),
-            "password": "",
-        }
-        if options.get("want_access_token", True):
-            filtered["access_token"] = d.get("access_token", "")
-        if options.get("want_session_token", True):
-            filtered["session_token"] = d.get("session_token", "")
-            filtered["cookie_header"] = d.get("cookie_header", "")
-        if options.get("want_refresh_token", True):
-            filtered["refresh_token"] = d.get("refresh_token", "")
-            filtered["id_token"] = d.get("id_token", "")
-
-        db.save_registered(filtered)
-        _try_export_to_panels(run_id, filtered)
-
-        summary = {
-            "email": filtered.get("email"),
-            "access_token_len": len(filtered.get("access_token") or ""),
-            "session_token_len": len(filtered.get("session_token") or ""),
-            "refresh_token_len": len(filtered.get("refresh_token") or ""),
-            "partial": False,
-        }
-        _emit_status(run_id, "done", summary)
-        logging.getLogger("registrar").info(
-            f"[skip_sms] done email={filtered.get('email')} "
-            f"at={summary['access_token_len']} "
-            f"st={summary['session_token_len']} "
-            f"rt={summary['refresh_token_len']}"
-        )
-        db.finish_run(run_id, "done")
-
-    except Exception as e:
-        err = str(e)
-        logging.getLogger("registrar").error(f"[skip_sms] failed: {err}")
-        logging.getLogger("registrar").error(traceback.format_exc())
-        db.finish_run(run_id, "failed", err, category="unknown")
-        _emit_status(run_id, "error", {"message": err, "category": "unknown"})
-
-    finally:
-        for k, v in saved_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-        try:
-            root_logger.removeHandler(handler)
-            handler.close()
-        except Exception:
-            pass
-        q = _run_queues.get(run_id)
-        if q is not None:
-            q.put(None)
-
-
-def start_skip_sms_registration(access_token: str, session_token: str, options: dict) -> str:
-    """启动一次跳过接码的注册任务，返回 run_id。"""
-    run_id = uuid.uuid4().hex[:12]
-    log_file = LOG_DIR / f"{run_id}.log"
-
-    email = "skip_sms_unknown"
-    if access_token and access_token.count(".") >= 2:
-        try:
-            import base64 as _b64
-            payload_b64 = access_token.split(".")[1]
-            payload_b64 += "=" * (-len(payload_b64) % 4)
-            payload = json.loads(
-                _b64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
-            )
-            profile = payload.get("https://api.openai.com/profile", {})
-            email = (profile.get("email") or payload.get("email") or "skip_sms_unknown")
-        except Exception:
-            pass
-
-    db.create_run(run_id, email, str(log_file))
-
-    q: queue.Queue = queue.Queue()
-    with _lock:
-        _run_queues[run_id] = q
-
-    th = threading.Thread(
-        target=_do_skip_sms_register,
-        args=(run_id, access_token, session_token, options, log_file),
-        daemon=True,
-        name=f"skip-sms-{run_id}",
-    )
-    th.start()
-    return run_id

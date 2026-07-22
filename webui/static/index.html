@@ -85,29 +85,6 @@
     </div>
   </section>
 
-  <!-- 跳过接码：已有 token 直接换 RT -->
-  <section class="card">
-    <h2>⚡ 跳过接码（Token → Refresh Token）</h2>
-    <p class="hint">粘贴已有的 <code>access_token</code>（从 ChatGPT /api/auth/session 获取），
-       跳过 SMS/OTP 直接换取 <code>refresh_token</code>。</p>
-    <div class="form">
-      <label>Access Token <small>（JWT，必填；可从浏览器 DevTools → Network → /api/auth/session 复制）</small>
-        <textarea id="skipSmsAccessToken" rows="3" placeholder="eyJhbGciOi..."></textarea>
-      </label>
-      <label>Session Token <small>（可选：__Secure-next-auth.session-token cookie 值，提高成功率）</small>
-        <input id="skipSmsSessionToken" placeholder="从浏览器 Application → Cookies 复制">
-      </label>
-      <label>代理 <small>（直连留空）</small>
-        <input id="skipSmsProxy" placeholder="socks5://user:pass@host:1080">
-      </label>
-      <div class="row">
-        <button id="btnSkipSms" class="primary">⚡ 跳过接码拿 RT</button>
-        <span id="skipSmsStatus" class="result"></span>
-      </div>
-    </div>
-  </section>
-
-
   <!-- 右：日志 + 列表 -->
   <section class="card">
     <h2>📜 实时日志</h2>
@@ -156,6 +133,11 @@
         </tr></thead>
         <tbody></tbody>
       </table>
+      <div id="poolPagination" class="pagination">
+        <button id="poolPrevPage" title="上一页">◀ 上一页</button>
+        <span id="poolPageInfo">第 1 页 / 共 1 页（0 条）</span>
+        <button id="poolNextPage" title="下一页">下一页 ▶</button>
+      </div>
     </div>
 
     <div class="tab-content hidden" id="tab-registered">
@@ -425,10 +407,26 @@
   <div class="modal-body">
     <div class="modal-head">
       <h3 id="credTitle">凭证</h3>
-      <button id="credCopyJson">📋 复制全部 JSON</button><button id="credDownloadJson">⬇ 下载 JSON</button>
+      <button id="credExportAuth" class="hidden">📥 导出 auth.json</button>
+      <button id="credCopyJson">📋 复制全部 JSON</button>
       <button id="credClose">✕</button>
     </div>
     <div id="credFields" class="cred-fields"></div>
+  </div>
+</div>
+
+<!-- QQ 群弹窗 -->
+<div class="modal hidden" id="qqModal">
+  <div class="modal-body" style="max-width:420px; text-align:center;">
+    <div class="modal-head" style="justify-content:center;">
+      <h3 style="text-align:center;">加入交流群</h3>
+    </div>
+    <div style="padding:24px 20px;">
+      <p style="font-size:15px; color:#333; margin:0 0 12px;">感谢使用本工具！加入 QQ 群获取最新版本更新、使用教程和技术支持~</p>
+      <div style="font-size:28px; font-weight:bold; color:var(--pink-dark); margin:16px 0; letter-spacing:2px;">259844673</div>
+      <p style="font-size:13px; color:#888; margin:0 0 20px;">遇到问题群里问，更新公告群里发 ✨</p>
+      <button id="qqModalClose" style="padding:8px 32px; font-size:14px; cursor:pointer; border-radius:8px; border:1px solid var(--border); background:var(--pink-light); color:var(--pink-dark);">我知道了</button>
+    </div>
   </div>
 </div>
 
