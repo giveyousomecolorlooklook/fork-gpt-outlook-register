@@ -62,6 +62,16 @@ class RegisterReq(BaseModel):
     otp_timeout: int = 180
     allow_existing_login: bool = True
 
+class SkipSmsReq(BaseModel):
+    """跳过接码：用已有 access_token / session_token 换 refresh_token"""
+    access_token: str = Field("", description="ChatGPT session JWT (accessToken)")
+    session_token: str = Field("", description="可选的 __Secure-next-auth.session-token")
+    proxy: str = ""
+    want_access_token: bool = True
+    want_session_token: bool = True
+    want_refresh_token: bool = True
+
+
 
 # ──────────────────────── API ────────────────────────
 
@@ -181,6 +191,37 @@ def api_register(req: RegisterReq):
     run_id = registrar.start_registration(account, options)
     logger.info(f"[run] {run_id} -> {account['email']} (mail_source={mail_source})")
     return {"ok": True, "run_id": run_id, "email": account["email"]}
+
+@app.post("/api/skip_sms")
+def api_skip_sms(req: SkipSmsReq):
+    """跳过接码：用已有 access_token 直接换 refresh_token（Codex OAuth 直连）。"""
+    access_token = (req.access_token or "").strip()
+    session_token = (req.session_token or "").strip()
+    if not access_token and not session_token:
+        raise HTTPException(400, "需要 access_token 或 session_token")
+
+    options = {
+        "want_access_token": req.want_access_token,
+        "want_session_token": req.want_session_token,
+        "want_refresh_token": req.want_refresh_token,
+        "proxy": req.proxy,
+    }
+    email = "skip_sms_unknown"
+    if access_token and access_token.count(".") >= 2:
+        try:
+            import base64
+            payload_b64 = access_token.split(".")[1]
+            payload_b64 += "=" * (-len(payload_b64) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8"))
+            profile = payload.get("https://api.openai.com/profile", {})
+            email = (profile.get("email") or payload.get("email") or email)
+        except Exception:
+            pass
+
+    run_id = registrar.start_skip_sms_registration(access_token, session_token, options)
+    logger.info(f"[skip_sms] {run_id} -> {email}")
+    return {"ok": True, "run_id": run_id, "email": email}
+
 
 
 @app.get("/api/runs/{run_id}/stream")

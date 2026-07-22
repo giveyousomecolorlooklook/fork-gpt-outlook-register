@@ -85,6 +85,29 @@
     </div>
   </section>
 
+  <!-- 跳过接码：已有 token 直接换 RT -->
+  <section class="card">
+    <h2>⚡ 跳过接码（Token → Refresh Token）</h2>
+    <p class="hint">粘贴已有的 <code>access_token</code>（从 ChatGPT /api/auth/session 获取），
+       跳过 SMS/OTP 直接换取 <code>refresh_token</code>。</p>
+    <div class="form">
+      <label>Access Token <small>（JWT，必填；可从浏览器 DevTools → Network → /api/auth/session 复制）</small>
+        <textarea id="skipSmsAccessToken" rows="3" placeholder="eyJhbGciOi..."></textarea>
+      </label>
+      <label>Session Token <small>（可选：__Secure-next-auth.session-token cookie 值，提高成功率）</small>
+        <input id="skipSmsSessionToken" placeholder="从浏览器 Application → Cookies 复制">
+      </label>
+      <label>代理 <small>（直连留空）</small>
+        <input id="skipSmsProxy" placeholder="socks5://user:pass@host:1080">
+      </label>
+      <div class="row">
+        <button id="btnSkipSms" class="primary">⚡ 跳过接码拿 RT</button>
+        <span id="skipSmsStatus" class="result"></span>
+      </div>
+    </div>
+  </section>
+
+
   <!-- 右：日志 + 列表 -->
   <section class="card">
     <h2>📜 实时日志</h2>
@@ -402,7 +425,7 @@
   <div class="modal-body">
     <div class="modal-head">
       <h3 id="credTitle">凭证</h3>
-      <button id="credCopyJson">📋 复制全部 JSON</button>
+      <button id="credCopyJson">📋 复制全部 JSON</button><button id="credDownloadJson">⬇ 下载 JSON</button>
       <button id="credClose">✕</button>
     </div>
     <div id="credFields" class="cred-fields"></div>

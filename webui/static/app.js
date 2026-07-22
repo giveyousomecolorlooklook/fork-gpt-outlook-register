@@ -156,6 +156,7 @@ function streamRun(runId) {
     try { es.close(); } catch (_) {}
     currentEs = null;
     $("#btnRun").disabled = false;
+    $("#btnSkipSms").disabled = false;
     refreshStats();
     refreshPool();
     refreshRegistered();
@@ -166,6 +167,7 @@ function streamRun(runId) {
     try { es.close(); } catch (_) {}
     currentEs = null;
     $("#btnRun").disabled = false;
+    $("#btnSkipSms").disabled = false;
   };
 }
 
@@ -183,6 +185,54 @@ $("#runStatus").addEventListener("click", async (e) => {
     } catch (err) { alert("加载凭证失败: " + err.message); }
   }
 });
+
+// ──────────────────────── 跳过接码 ────────────────────────
+
+$("#btnSkipSms").addEventListener("click", async () => {
+  const accessToken = $("#skipSmsAccessToken").value.trim();
+  const sessionToken = $("#skipSmsSessionToken").value.trim();
+  if (!accessToken && !sessionToken) {
+    $("#skipSmsStatus").textContent = "请粘贴 access_token 或 session_token";
+    $("#skipSmsStatus").className = "result bad";
+    return;
+  }
+  const opts = {
+    access_token: accessToken,
+    session_token: sessionToken,
+    proxy: $("#skipSmsProxy").value.trim(),
+    want_access_token: true,
+    want_session_token: true,
+    want_refresh_token: true,
+  };
+  $("#btnSkipSms").disabled = true;
+  $("#skipSmsStatus").textContent = "启动中...";
+  $("#skipSmsStatus").className = "result";
+  $("#logBox").innerHTML = "";
+
+  try {
+    const r = await api("/api/skip_sms", {
+      method: "POST",
+      body: JSON.stringify(opts),
+    });
+    $("#skipSmsStatus").textContent = `⚡ 已启动 run_id=${r.run_id} email=${r.email}`;
+    logLine(`[skip_sms] 启动 run_id=${r.run_id} email=${r.email}`, "evt");
+    streamRun(r.run_id);
+    // 完成时恢复按钮（streamRun 的 end 事件会处理 #btnRun，这里额外处理 skipSms）
+    const origEnd = currentEs ? null : null;
+    // 监听 SSE end 事件恢复 skipSms 按钮
+    const checkEnd = setInterval(() => {
+      if (!currentEs) {
+        $("#btnSkipSms").disabled = false;
+        clearInterval(checkEnd);
+      }
+    }, 500);
+  } catch (e) {
+    $("#skipSmsStatus").textContent = "❌ " + e.message;
+    $("#skipSmsStatus").className = "result bad";
+    $("#btnSkipSms").disabled = false;
+  }
+});
+
 
 // ──────────────────────── Tabs ────────────────────────
 
@@ -407,6 +457,7 @@ async function refreshRegistered(resetPage) {
       <td>${fmtTime(r.created_at)}</td>
       <td>
         <button data-act="view" data-email="${r.email}">查看凭证</button>
+        <button data-act="dl" data-email="${r.email}">⬇ 下载</button>
         <button data-act="del" data-email="${r.email}">删除</button>
       </td>
     `;
@@ -544,6 +595,14 @@ $("#regTable").addEventListener("click", async (e) => {
     } catch (err) { alert("加载凭证失败: " + err.message); }
   }
 
+  // 「⬇ 下载」直接下载 JSON
+  if (btn.dataset.act === "dl") {
+    try {
+      const cred = await _loadCred(email);
+      _downloadJson(email, cred);
+    } catch (err) { alert("加载凭证失败: " + err.message); }
+  }
+
   // 「删除」单行删
   if (btn.dataset.act === "del") {
     if (!confirm(`删除 ${email} 的凭证？`)) return;
@@ -629,6 +688,25 @@ $("#credCopyJson").addEventListener("click", async (e) => {
   if (!_credCache) return;
   await _copyText(JSON.stringify(_credCache, null, 2), e.currentTarget);
 });
+$("#credDownloadJson").addEventListener("click", () => {
+  if (!_credCache) return;
+  _downloadJson(_credCache.email || "credentials", _credCache);
+});
+
+function _downloadJson(email, data) {
+  const safeName = (email || "credentials").replace(/[@.]/g, "_");
+  const blob = new Blob([
+    JSON.stringify(data, null, 2),
+  ], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = safeName + ".json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 // ──────────────────────── 运行记录 ────────────────────────
 
