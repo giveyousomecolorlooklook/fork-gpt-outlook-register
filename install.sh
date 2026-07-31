@@ -15,7 +15,9 @@ else
     cd fork-gpt-outlook-register
 fi
 
-uv venv
+if [ ! -d .venv ]; then
+    uv venv
+fi
 uv pip install -r requirements.txt
 
 if [ -f /root/webui.db.backup ]; then
