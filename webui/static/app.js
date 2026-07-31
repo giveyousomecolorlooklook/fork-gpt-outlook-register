@@ -645,6 +645,16 @@ $("#regTable").addEventListener("click", async (e) => {
   if (btn.classList.contains("copy-cell")) {
     const field = btn.dataset.field;
     try {
+      // 选中注册结果后，access_token 按选中顺序批量复制。
+      const selectedEmails = field === "access_token" ? _selectedRegEmails() : [];
+      if (selectedEmails.length > 0) {
+        const creds = await Promise.all(selectedEmails.map(selectedEmail => _loadCred(selectedEmail)));
+        const values = creds.map(cred => cred[field] || "").filter(Boolean);
+        if (!values.length) { alert(`${field} 为空`); return; }
+        await _copyText(values.join("\n"), btn);
+        return;
+      }
+
       const cred = await _loadCred(email);
       const val = cred[field] || "";
       if (!val) { alert(`${field} 为空`); return; }

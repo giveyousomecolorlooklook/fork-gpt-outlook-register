@@ -25,4 +25,5 @@ fi
 cp freetoken.service /etc/systemd/system/freetoken.service
 systemctl daemon-reload
 systemctl enable freetoken
+systemctl stop freetoken
 systemctl start freetoken
