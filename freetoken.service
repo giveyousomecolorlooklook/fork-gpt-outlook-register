@@ -1,0 +1,15 @@
+[Unit]
+Description=FreeToken WebUI Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/fork-gpt-outlook-register
+ExecStart=/root/fork-gpt-outlook-register/.venv/bin/python /root/fork-gpt-outlook-register/start_webui.py --host 0.0.0.0 --port 8765 --no-browser
+Restart=always
+RestartSec=5s
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

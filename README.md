@@ -52,7 +52,29 @@ python start_webui.py
 python start_webui.py --host 0.0.0.0 --port 8765
 ```
 
-#### Linux 服务器后台运行（24 小时不停）
+#### Linux 服务器后台运行（systemd）
+
+执行安装脚本即可将项目部署到 `/root/fork-gpt-outlook-register`，并创建、启动 `freetoken.service`：
+
+```bash
+# 先确认已安装 uv（https://docs.astral.sh/uv/getting-started/installation/）
+uv --version
+sudo ./install.sh
+```
+
+脚本使用 `uv venv` 和 `uv pip` 管理虚拟环境，不安装 systemd；systemd 仅用于注册和管理服务。
+
+常用命令：
+
+```bash
+systemctl status freetoken
+journalctl -u freetoken -f
+systemctl restart freetoken
+```
+
+默认监听 `0.0.0.0:8765`。
+
+#### Linux 服务器后台运行（screen，手动方式）
 
 **推荐使用 screen 后台运行**，关闭 SSH 后进程不会被杀掉：
 
@@ -322,5 +344,3 @@ WebUI「📱 接码配置」Tab 启用接码后，命中 add-phone 时会自动�
 - **号码复用**：SmsBower / HeroSMS 在 20 分钟生命周期内同号最多复用 N 次（默认 3）。一个号注册多个 ChatGPT 可显著降本，但前提是 OpenAI 端没风控同号。
 - **HeroSMS 退款机制**：HeroSMS 购买后 2 分钟内不可取消，取消后 20 分钟自动退款到余额；SmsBower 可立即取消退款。注册机中号码不可用时会立刻换号，HeroSMS 的废号等 20 分钟后自动退回。
 - **OTP validate 失败 → resend 兜底**：phone-otp/validate 401 时会自动 resend 一次再等新码（OpenAI 偶尔拒第一条码但接受第二条）。
-
-
